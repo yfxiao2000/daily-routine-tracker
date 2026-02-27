@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background-color: #f8fafc;
+  color: #1e293b;
+  box-sizing: border-box;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px;
+
+  @media screen and (max-width: 767px) {
+    max-width: 100%;
+    padding: 12px;
+  }
+}
+
+// ---- 庆祝动画 ----
+.confetti-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.confetti-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 50%;
+  animation: confetti-rise 2.5s ease-out forwards;
+}
+
+@keyframes confetti-rise {
+  0% {
+    transform: translateY(0) translateX(0) rotate(0deg) scale(0);
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-50vh) translateX(var(--drift, 0px)) rotate(180deg) scale(1);
+  }
+  100% {
+    transform: translateY(-105vh) translateX(var(--drift, 0px)) rotate(360deg) scale(0.5);
+    opacity: 0;
+  }
+}
