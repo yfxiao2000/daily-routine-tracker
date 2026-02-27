@@ -3,13 +3,15 @@ import {
   DayTask,
   Category,
   CategoryConfig,
-  COLOR_PRESETS,
   DAY_LABELS,
   DayOfWeek,
   RoutineTemplate,
 } from "@/types/routine";
 import { formatDate, formatHour, formatTimeRange } from "@/utils/dateUtils";
 import RoutineItem from "./RoutineItem";
+import CategoryPicker from "./CategoryPicker";
+import DayPicker from "./DayPicker";
+import DurationPicker, { DURATION_LABELS } from "./DurationPicker";
 
 interface DayTaskListProps {
   date: string;
@@ -32,11 +34,6 @@ const HOURS = Array.from(
   (_, i) => TIMELINE_START + i
 );
 
-// 时长选项
-const DURATION_OPTIONS = [0.5, 1, 1.5, 2, 3];
-const DURATION_LABELS: Record<number, string> = {
-  0.5: "30分钟", 1: "1小时", 1.5: "1.5小时", 2: "2小时", 3: "3小时",
-};
 
 // 向导步骤
 type WizardStep = "list" | "input" | "pickTime" | "afterAdd" | "saveTemplate";
@@ -70,11 +67,6 @@ export default function DayTaskList({
   // ---- 模板日期选择 ----
   const [templateDays, setTemplateDays] = useState<DayOfWeek[]>([]);
 
-  // ---- 添加分类小表单 ----
-  const [showAddCat, setShowAddCat] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatColorIdx, setNewCatColorIdx] = useState(0);
-
   // ---- 编辑任务时间 ----
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editHour, setEditHour] = useState(9);
@@ -104,7 +96,6 @@ export default function DayTaskList({
     setNewTitle("");
     setNewCategory("other");
     setNewDuration(1);
-    setShowAddCat(false);
     if (step === "list") setSessionTasks([]);
     setStep("input");
   };
@@ -129,7 +120,6 @@ export default function DayTaskList({
     setNewTitle("");
     setNewCategory("other");
     setNewDuration(1);
-    setShowAddCat(false);
     setStep("input");
   };
 
@@ -171,7 +161,6 @@ export default function DayTaskList({
   const handleCancel = () => {
     setStep("list");
     setNewTitle("");
-    setShowAddCat(false);
   };
 
   // ---- 切换模板日期 ----
@@ -179,20 +168,6 @@ export default function DayTaskList({
     setTemplateDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
-  };
-
-  // ---- 添加自定义分类 ----
-  const handleAddCat = () => {
-    const trimmed = newCatName.trim();
-    if (!trimmed) return;
-    const key = `custom_${Date.now()}`;
-    onAddCategory(key, {
-      label: trimmed,
-      ...COLOR_PRESETS[newCatColorIdx],
-    });
-    setNewCategory(key);
-    setNewCatName("");
-    setShowAddCat(false);
   };
 
   // ---- 开始编辑任务时间 ----
@@ -268,17 +243,7 @@ export default function DayTaskList({
                           <option key={i} value={i}>{formatHour(i)}</option>
                         ))}
                       </select>
-                      <label className="text-xs text-gray-500">时长：</label>
-                      <select
-                        value={editDuration}
-                        onChange={(e) => setEditDuration(Number(e.target.value))}
-                        className="px-2 py-1 text-xs border border-gray-border rounded-md bg-white
-                          focus:outline-none focus:border-primary"
-                      >
-                        {DURATION_OPTIONS.map((d) => (
-                          <option key={d} value={d}>{DURATION_LABELS[d]}</option>
-                        ))}
-                      </select>
+                      <DurationPicker value={editDuration} onChange={setEditDuration} variant="select" label="时长：" />
                       <button
                         onClick={saveEditTime}
                         className="px-2.5 py-1 text-xs bg-primary text-white rounded-md"
@@ -325,83 +290,15 @@ export default function DayTaskList({
           />
 
           {/* 分类选择 */}
-          <div className="flex gap-1.5 flex-wrap items-center">
-            {Object.entries(categories).map(([key, config]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setNewCategory(key)}
-                className={`px-2.5 py-0.5 text-xs rounded-full transition-colors
-                  ${newCategory === key
-                    ? `${config.bg} ${config.color} font-medium`
-                    : "bg-white text-gray-400 hover:bg-gray-100"
-                  }`}
-              >
-                {config.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setShowAddCat(!showAddCat)}
-              className="w-6 h-6 text-xs rounded-full bg-white text-gray-400 border border-dashed
-                border-gray-300 hover:border-primary hover:text-primary transition-colors
-                flex items-center justify-center"
-            >
-              +
-            </button>
-          </div>
-
-          {showAddCat && (
-            <div className="flex gap-2 items-center bg-white p-2 rounded-lg border border-gray-100">
-              <input
-                type="text"
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                placeholder="分类名称"
-                className="px-2 py-1 text-xs border border-gray-border rounded-md w-20
-                  focus:outline-none focus:border-primary"
-              />
-              <div className="flex gap-1">
-                {COLOR_PRESETS.map((preset, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => setNewCatColorIdx(i)}
-                    className={`w-5 h-5 rounded-full ${preset.bg} border-2 transition-colors
-                      ${newCatColorIdx === i ? "border-gray-800" : "border-transparent"}`}
-                  />
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={handleAddCat}
-                className="px-2 py-1 text-xs bg-primary text-white rounded-md"
-              >
-                添加
-              </button>
-            </div>
-          )}
+          <CategoryPicker
+            categories={categories}
+            selected={newCategory}
+            onSelect={setNewCategory}
+            onAddCategory={onAddCategory}
+          />
 
           {/* 时长选择 */}
-          <div>
-            <div className="text-xs text-gray-500 mb-1.5">时长：</div>
-            <div className="flex gap-1.5">
-              {DURATION_OPTIONS.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setNewDuration(d)}
-                  className={`px-2.5 py-1 text-xs rounded-full transition-colors
-                    ${newDuration === d
-                      ? "bg-primary text-white"
-                      : "bg-white text-gray-500 border border-gray-200 hover:border-primary"
-                    }`}
-                >
-                  {DURATION_LABELS[d]}
-                </button>
-              ))}
-            </div>
-          </div>
+          <DurationPicker value={newDuration} onChange={setNewDuration} label="时长：" />
 
           <div className="flex gap-2 justify-end">
             <button
@@ -555,37 +452,11 @@ export default function DayTaskList({
             保存后每周选中的日子会自动出现这些任务
           </div>
 
-          <div className="flex flex-col gap-2 items-center">
-            <div className="flex gap-1.5">
-              {([0, 1, 2, 3, 4, 5, 6] as DayOfWeek[]).map((day) => (
-                <button
-                  key={day}
-                  onClick={() => toggleDay(day)}
-                  className={`w-8 h-8 text-xs rounded-full transition-colors
-                    ${templateDays.includes(day)
-                      ? "bg-primary text-white"
-                      : "bg-white text-gray-500 border border-gray-200 hover:border-primary"
-                    }`}
-                >
-                  {DAY_LABELS[day]}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setTemplateDays([1, 2, 3, 4, 5])}
-                className="text-xs text-primary hover:underline"
-              >
-                工作日
-              </button>
-              <button
-                onClick={() => setTemplateDays([0, 1, 2, 3, 4, 5, 6])}
-                className="text-xs text-primary hover:underline"
-              >
-                每天
-              </button>
-            </div>
-          </div>
+          <DayPicker
+            selected={templateDays}
+            onToggle={toggleDay}
+            onSetDays={setTemplateDays}
+          />
 
           <div className="flex gap-2 justify-center">
             <button

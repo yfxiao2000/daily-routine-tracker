@@ -21,6 +21,7 @@ import {
   getNextWeek,
   makeCompletionKey,
 } from "@/utils/dateUtils";
+import * as api from "@/lib/api";
 import CalendarHeader from "@/components/CalendarHeader";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
@@ -29,24 +30,10 @@ import TemplateManager from "@/components/TemplateManager";
 import StatsPanel from "@/components/StatsPanel";
 import Confetti from "@/components/Confetti";
 
-// ---- 生成唯一 ID（避免同毫秒重复） ----
-let idCounter = 0;
-function uniqueId(): string {
-  return `${Date.now()}_${idCounter++}`;
-}
-
-// ---- localStorage keys ----
-const KEYS = {
-  templates: "routine-templates",
-  oneoffs: "routine-oneoffs",
-  completions: "routine-completions",
-  categories: "routine-categories",
-};
-
 export default function Home() {
   // ========== State ==========
 
-  // 数据（4 组，对应 4 个 localStorage key）
+  // 数据（4 组，现在从数据库加载而不是 localStorage）
   const [templates, setTemplates] = useState<RoutineTemplate[]>([]);
   const [oneoffs, setOneoffs] = useState<OneOffTask[]>([]);
   const [completions, setCompletions] = useState<CompletionRecord>({});
@@ -74,44 +61,28 @@ export default function Home() {
   const [showConfetti, setShowConfetti] = useState(false);
   const prevAllCompleted = useRef(false);
 
-  // ========== localStorage 读写 ==========
+  // ========== 从数据库加载数据 ==========
 
-  // 加载（只执行一次）
-  // 兼容旧数据：如果模板或单日任务没有 hour/duration 字段，默认赋值
   useEffect(() => {
-    const t = localStorage.getItem(KEYS.templates);
-    const o = localStorage.getItem(KEYS.oneoffs);
-    const c = localStorage.getItem(KEYS.completions);
-    const cat = localStorage.getItem(KEYS.categories);
-    if (t) {
-      const parsed: RoutineTemplate[] = JSON.parse(t);
-      setTemplates(parsed.map((item) => ({ ...item, hour: item.hour ?? 9, duration: item.duration ?? 1 })));
+    async function loadData() {
+      try {
+        const [t, o, c, cat] = await Promise.all([
+          api.fetchTemplates(),
+          api.fetchOneoffs(),
+          api.fetchCompletions(),
+          api.fetchCategories(),
+        ]);
+        setTemplates(t);
+        setOneoffs(o);
+        setCompletions(c);
+        setCustomCategories(cat);
+      } catch (err) {
+        console.error("加载数据失败:", err);
+      }
+      setIsLoaded(true);
     }
-    if (o) {
-      const parsed: OneOffTask[] = JSON.parse(o);
-      setOneoffs(parsed.map((item) => ({ ...item, hour: item.hour ?? 9, duration: item.duration ?? 1 })));
-    }
-    if (c) setCompletions(JSON.parse(c));
-    if (cat) setCustomCategories(JSON.parse(cat));
-    setIsLoaded(true);
+    loadData();
   }, []);
-
-  // 保存（分别监听各自的变化）
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem(KEYS.templates, JSON.stringify(templates));
-  }, [templates, isLoaded]);
-
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem(KEYS.oneoffs, JSON.stringify(oneoffs));
-  }, [oneoffs, isLoaded]);
-
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem(KEYS.completions, JSON.stringify(completions));
-  }, [completions, isLoaded]);
-
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem(KEYS.categories, JSON.stringify(customCategories));
-  }, [customCategories, isLoaded]);
 
   // ========== 核心函数：计算某天的任务列表 ==========
 
@@ -155,26 +126,23 @@ export default function Home() {
     [templates, oneoffs, completions]
   );
 
-  // ========== Handler 函数 ==========
+  // ========== Handler 函数（现在调用 API） ==========
 
-  const handleToggle = (task: DayTask) => {
+  const handleToggle = async (task: DayTask) => {
+    // 乐观更新：先更新 UI，再发请求
     const key = makeCompletionKey(task.date, task.sourceType, task.sourceId);
     setCompletions((prev) => ({ ...prev, [key]: !prev[key] }));
+    // 后台持久化
+    await api.toggleCompletion(task.date, task.sourceType, task.sourceId);
   };
 
-  const handleAddOneOff = (title: string, category: Category, date: string, hour: number, duration: number) => {
-    const newTask: OneOffTask = {
-      id: uniqueId(),
-      title,
-      category,
-      date,
-      hour,
-      duration,
-    };
-    setOneoffs((prev) => [...prev, newTask]);
+  const handleAddOneOff = async (title: string, category: Category, date: string, hour: number, duration: number) => {
+    const created = await api.createOneoff({ title, category, date, hour, duration });
+    setOneoffs((prev) => [...prev, created]);
   };
 
-  const handleDeleteOneOff = (task: DayTask) => {
+  const handleDeleteOneOff = async (task: DayTask) => {
+    await api.deleteOneoff(task.sourceId);
     setOneoffs((prev) => prev.filter((t) => t.id !== task.sourceId));
     const key = makeCompletionKey(task.date, "oneoff", task.sourceId);
     setCompletions((prev) => {
@@ -184,50 +152,54 @@ export default function Home() {
     });
   };
 
-  // ---- 编辑单日任务（修改时间/时长） ----
-  const handleEditOneOff = (sourceId: string, hour: number, duration: number) => {
-    setOneoffs((prev) => prev.map((t) =>
-      t.id === sourceId ? { ...t, hour, duration } : t
-    ));
+  const handleEditOneOff = async (sourceId: string, hour: number, duration: number) => {
+    const updated = await api.updateOneoff(sourceId, { hour, duration });
+    setOneoffs((prev) => prev.map((t) => (t.id === sourceId ? updated : t)));
   };
 
-  const handleAddTemplate = (data: Omit<RoutineTemplate, "id">) => {
-    setTemplates((prev) => [...prev, { id: uniqueId(), ...data }]);
+  const handleAddTemplate = async (data: Omit<RoutineTemplate, "id">) => {
+    const created = await api.createTemplate(data);
+    setTemplates((prev) => [...prev, created]);
   };
 
-  // ---- 编辑模板 ----
-  const handleEditTemplate = (id: string, data: Omit<RoutineTemplate, "id">) => {
-    setTemplates((prev) => prev.map((t) =>
-      t.id === id ? { ...t, ...data } : t
-    ));
+  const handleEditTemplate = async (id: string, data: Omit<RoutineTemplate, "id">) => {
+    const updated = await api.updateTemplate(id, data);
+    setTemplates((prev) => prev.map((t) => (t.id === id ? updated : t)));
   };
 
   // 保存为模板后，删除当天对应的一日任务（避免重复）
-  const handleRemoveOneOffs = (
+  const handleRemoveOneOffs = async (
     tasksToRemove: { title: string; category: string; date: string; hour: number }[]
   ) => {
-    setOneoffs((prev) => {
-      const remaining = [...prev];
-      for (const toRemove of tasksToRemove) {
-        const idx = remaining.findIndex(
-          (t) =>
-            t.title === toRemove.title &&
-            t.category === toRemove.category &&
-            t.date === toRemove.date &&
-            t.hour === toRemove.hour
-        );
-        if (idx !== -1) remaining.splice(idx, 1);
+    const idsToRemove: string[] = [];
+    const remaining = [...oneoffs];
+    for (const toRemove of tasksToRemove) {
+      const idx = remaining.findIndex(
+        (t) =>
+          t.title === toRemove.title &&
+          t.category === toRemove.category &&
+          t.date === toRemove.date &&
+          t.hour === toRemove.hour
+      );
+      if (idx !== -1) {
+        idsToRemove.push(remaining[idx].id);
+        remaining.splice(idx, 1);
       }
-      return remaining;
-    });
+    }
+    // 从服务器删除
+    for (const id of idsToRemove) {
+      await api.deleteOneoff(id);
+    }
+    setOneoffs(remaining);
   };
 
-  const handleDeleteTemplate = (id: string) => {
+  const handleDeleteTemplate = async (id: string) => {
+    await api.deleteTemplate(id);
     setTemplates((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // ---- 自定义分类 ----
-  const handleAddCategory = (key: string, config: CategoryConfig) => {
+  const handleAddCategory = async (key: string, config: CategoryConfig) => {
+    await api.createCategory(key, config);
     setCustomCategories((prev) => ({ ...prev, [key]: config }));
   };
 
@@ -290,19 +262,48 @@ export default function Home() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        if (data.templates) setTemplates(data.templates);
-        if (data.oneoffs) setOneoffs(data.oneoffs);
-        if (data.completions) setCompletions(data.completions);
-        if (data.categories) setCustomCategories(data.categories);
+        // 逐条调用 API 写入数据库
+        if (data.templates) {
+          for (const t of data.templates) {
+            await api.createTemplate({
+              title: t.title, category: t.category,
+              repeatDays: t.repeatDays, hour: t.hour, duration: t.duration,
+            });
+          }
+        }
+        if (data.oneoffs) {
+          for (const o of data.oneoffs) {
+            await api.createOneoff({
+              title: o.title, category: o.category,
+              date: o.date, hour: o.hour, duration: o.duration,
+            });
+          }
+        }
+        if (data.completions) {
+          await api.bulkImportCompletions(data.completions);
+        }
+        if (data.categories) {
+          for (const [key, config] of Object.entries(data.categories)) {
+            await api.createCategory(key, config as CategoryConfig);
+          }
+        }
+        // 重新加载全部数据
+        const [t, o, c, cat] = await Promise.all([
+          api.fetchTemplates(), api.fetchOneoffs(),
+          api.fetchCompletions(), api.fetchCategories(),
+        ]);
+        setTemplates(t);
+        setOneoffs(o);
+        setCompletions(c);
+        setCustomCategories(cat);
       } catch {
         alert("导入失败：文件格式不正确");
       }
     };
     reader.readAsText(file);
-    // 重置 input 以允许重复导入同一文件
     e.target.value = "";
   };
 

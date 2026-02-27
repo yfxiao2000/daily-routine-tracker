@@ -1,0 +1,58 @@
+// Prisma Schema — 数据库表结构定义
+// 文档：https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ---- 重复模板 ----
+// 对应前端的 RoutineTemplate 类型
+model Template {
+  id         String   @id @default(cuid())  // 主键，自动生成唯一 ID
+  title      String                          // 任务名称
+  category   String                          // 分类 key，如 "exercise"
+  repeatDays String                          // JSON 字符串，如 "[1,2,3,4,5]"
+  hour       Int      @default(9)            // 开始时间（0-23）
+  duration   Float    @default(1)            // 时长（小时）
+  createdAt  DateTime @default(now())        // 创建时间
+}
+
+// ---- 单日任务 ----
+// 对应前端的 OneOffTask 类型
+model OneOff {
+  id        String   @id @default(cuid())
+  title     String
+  category  String
+  date      String                           // "YYYY-MM-DD" 格式
+  hour      Int      @default(9)
+  duration  Float    @default(1)
+  createdAt DateTime @default(now())
+}
+
+// ---- 完成记录 ----
+// 对应前端的 CompletionRecord（key-value 映射）
+// 数据库用三列组成唯一约束，代替前端的 "date:sourceType:sourceId" 字符串 key
+model Completion {
+  id         Int     @id @default(autoincrement())
+  date       String                           // "YYYY-MM-DD"
+  sourceType String                           // "template" 或 "oneoff"
+  sourceId   String                           // 指向 Template.id 或 OneOff.id
+  completed  Boolean @default(true)
+
+  @@unique([date, sourceType, sourceId])      // 联合唯一约束
+}
+
+// ---- 分类 ----
+// 对应前端的 CategoryConfig 类型
+model Category {
+  key       String  @id                       // 分类标识，如 "exercise"、"custom_123"
+  label     String                            // 显示名称，如 "运动"
+  color     String                            // Tailwind 文字颜色类
+  bg        String                            // Tailwind 背景颜色类
+  isDefault Boolean @default(false)           // 是否为默认分类（不可删除）
+}
